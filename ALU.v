@@ -42,15 +42,15 @@ begin
         end
         else if(func==6'd0)
         begin
-            regout=regin1<<regin2;
+            regout=regin1<<regin2[10:6];
         end
         else if(func==6'd2 || func==6'd4)
         begin
-            regout=regin1>>regin2;
+            regout=regin1>>regin2[10:6];
         end
         else if(func==6'd3)
         begin
-            regout=regin1>>>regin2;
+            regout=regin1>>>regin2[10:6];
         end
         else if(func==6'd41)
         begin
