@@ -21,298 +21,129 @@
 module Proc(clk, rst, exec, we, d, a);
 input clk, rst, exec;
 input we;
-input [8:0] a;
 input [31:0] d;
-reg [31:0] RF [31:0];
-reg [31:0] FPR [31:0];
-reg [31:0] fin1, fin2;
-wire [31:0] fout;
-reg [31:0] fprout;
-reg fwe;
-reg [31:0] PC;
+input [8:0] a;
+
+reg [8:0] PC;
 wire [31:0] instruction;
-reg [31:0] rs, rt, rd;
-reg aluwe;
-reg [31:0] PC_curr;
-reg [5:0] op_code, func;
-reg [4:0] rs_add, rt_add, rd_add, shamt;
-reg [4:0] wrt_bck;
-reg [15:0] const;
-reg [25:0] j_add;
+wire [6:0] op_code, func;
+wire [4:0] rs_add, rt_add, rd_add, shamt;
+wire [15:0] const;
+wire [25:0] j_add;
+wire reg_dst, branch, mem_read, mem_to_reg, mem_write, alu_src, reg_write;
+wire [5:0] ALUop;
+wire [31:0] se_const;
+wire [4:0] reg_wrt_bck;
+wire [31:0] rs, rt;
+wire [31:0] alu_reg, alu_out;
+wire zero;
+wire [31:0] mem_out;
 reg [31:0] hi, lo;
 reg [63:0] mulout;
-reg [8:0] load_add, store_add;
-reg [31:0] store_data;
-wire [31:0] load_data;
-reg load_we;
-reg [5:0] ALUop;
-reg aluwe;
-reg [31:0] regin1, regin2;
-wire [31:0] regout;
-integer i;
+wire [31:0] reg_wrt_data;
+wire [31:0] wrt_data_fin;
+wire jalyes;
+wire [4:0] wrt_add_fin
+wire branch_decider;
+
+memory_wrapper inst_mem(.a(a), .d(d), .dpra(PC), .clk(clk), .dpo(instruction), .we(we));
+instruction_decoder inst_dec(.inst(instruction), .op_code(op_code), .rs_add(rs_add), .rt_add(rt_add), .rd_add(rd_add), .shamt(shamt), .func(func), .const(const), .j_add(j_add));
+control_unit myctr(.op_code(op_code), .func(func), .reg_dst(reg_dst), .branch(branch), .mem_read(mem_read), .mem_to_reg(mem_to_reg), .alu_op(ALUop), .mem_write(mem_write), .alu_src(alu_src), .reg_write(reg_write));
+sign_extender my_ext(.const(const), .sign_ext(se_const));
+mux2to1 regdesty(.sel(reg_dst), .datain1(rd_add), .datain2(rt_add), .dataout(reg_wrt_bck));
+mux2to1 jaladd(.sel(jalyes), .datain1({27'd0, reg_wrt_bck}), .datain2(32'd31), .dataout(wrt_add_fin));
+mux2to1 jaldata(.sel(jalyes), .datain1(reg_wrt_data), .datain2({23'd0, PC+1}), .dataout(wrt_data_fin));
+reg_file myregfile(.clk(clk), .we(reg_write), .rst(rst), .read1(rs_add), .read2(rt_add), .write(wrt_add_fin[4:0]), .data(wrt_data_fin), .regout1(rs), .regout2(rt));
+mux2to1 alusource(.sel(alu_src), .datain1(rt), .datain2(se_const), .dataout(alu_reg));
+ALU myalu(.op_code(op_code), .func(func), .regin1(rs), .regin2(alu_reg), .regout(alu_out), .zero(zero));
+memory_wrapper data_mem(.a(alu_out[8:0]), .d(rt), .dpra(alu_out[8:0]), .dpo(mem_out), .clk(clk), .we(mem_write));
+mux2to1 memreg(.sel(mem_to_reg), .datain1(alu_out), .datain2(mem_out), .dataout(reg_wrt_data));
+and(branch_decider, branch, zero);
+assign jalyes=op_code==6'd2;
+always@(*)
+begin
+    if(op_code==6'd0 && func==6'd24)
+    begin
+        mulout=rs*rt;
+    end
+    else if(op_code==6'd0 && func==6'd25)
+    begin
+        mulout=(rs*rt) + {hi, lo};
+    end
+    else if(op_code==6'd0 && func==6'd26)
+    begin
+        mulout=$unsigned(rs*rt) + $unsigned({hi, lo});
+    end
+end
+
 always@(posedge rst)
 begin
-    lo <= 32'd0;
-    hi <=32'd0;
-    for(i=0; i<32; i=i+1)
-    begin
-        RF[i]=32'd0;
-        FPR[i]=32'd0;
-    end
-    PC=32'd0;
-    aluwe=1'd0;
-    fwe=1'd0;
-    PC_curr=32'd0;
+    hi<=32'd0;
+    lo<=32'd0;
+    PC<=9'd0;
 end
-memory_wrapper inst_mem(.a(a), .d(d), .dpra(PC[8:0]), .clk(clk), .we(we), .dpo(instruction));
+
 always@(posedge clk)
 begin
-//PC=PC+1;
     if(exec)
     begin
-        op_code=instruction[31:26];
-        rs_add=instruction[25:21];
-        rt_add=instruction[20:16];
-        rd_add=instruction[15:11];
-        shamt=instruction[10:6];
-        func=instruction[5:0];
-        const=instruction[15:0];
-        j_add=instruction[25:0];
-        aluwe=1'd0;
-        if(op_code==6'd0)
+        if(op_code==6'd24 || op_code==6'd25 || op_code==6'd26)
         begin
-            if(func==6'h0 || func==6'h2 || func ==6'h3 || func==6'h4)
-            begin
-                ALUop<=func;
-                regin1<=RF[rs_add];
-                regin2<=shamt;
-                aluwe<=1'd1;
-                // RF[rd_add]=regout;
-                wrt_bck<=rd_add;
-            end
-            else if(func==6'd24)
-            begin
-                mulout=RF[rs_add]*RF[rt_add];
-            end
-            else if(func==6'd25)
-            begin
-                mulout=(RF[rs_add]*RF[rt_add])+{hi, lo};
-            end
-            else if(func==6'd26)
-            begin
-                mulout=$unsigned(RF[rs_add]*RF[rt_add])+$unsigned({hi, lo});
-            end
-            else
-            begin
-                ALUop<=func;
-                regin1<=RF[rs_add];
-                regin2<=RF[rt_add];
-                aluwe<=1'd1;
-                // RF[rd_add]=regout;
-                wrt_bck<=rd_add;
-            end
-            PC_curr<=PC+1;
+            {hi, lo}<=mulout;
         end
-        else if(op_code==6'd11)
+        else 
         begin
-            if(func==6'h29)
-            begin
-                fprout<=(FPR[rs_add]==FPR[rt_add]?32'd1:32'd0);
-                wrt_bck<=rd_add;
-                PC_curr<=PC+1;
-            end
-            else if(func==6'h30)
-            begin
-                fprout<=($signed(FPR[rs_add])<=$signed(FPR[rt_add])?32'd1:32'd0);
-                wrt_bck<=rd_add;
-                PC_curr<=PC+1;
-            end
-            else if(func==6'h31)
-            begin
-                fprout<=($signed(FPR[rs_add])<$signed(FPR[rt_add])?32'd1:32'd0);
-                wrt_bck<=rd_add;
-                PC_curr<=PC+1;
-            end
-            else if(func==6'h32)
-            begin
-                fprout<=($signed(FPR[rs_add])>=$signed(FPR[rt_add])?32'd1:32'd0);
-                wrt_bck<=rd_add;
-                PC_curr<=PC+1;
-            end
-            else if(func==6'h33)
-            begin
-                fprout<=($signed(FPR[rs_add])>$signed(FPR[rt_add])?32'd1:32'd0);
-                wrt_bck<=rd_add;
-                PC_curr<=PC+1;
-            end
-            else if(func==6'h34)
-            begin
-                fprout<=FPR[rt_add];
-                wrt_bck<=rs_add;
-                PC_curr<=PC+1;
-            end
-            else if(func==6'h35)
-            begin
-                fin1<=FPR[rs_add];
-                fin2<=FPR[rt_add];
-                fwe<=1'd1;
-                wrt_bck<=rd_add;
-                PC_curr<=PC+1;
-            end
-            else if(func==6'h36)
-            begin
-                fin1<=FPR[rs_add];
-                fin2<=FPR[rt_add]^32'h8000_0000;
-                fwe<=1'd1;
-                wrt_bck<=rd_add;
-                PC_curr<=PC+1;
-            end
-            else if(func==6'h37)
-            begin
-                fprout = RF[rt_add];
-                wrt_bck = rs_add;
-                PC_curr<=PC+1;
-            end
-            else if(func==6'h38)
-            begin
-                fprout = FPR[rs_add];
-                wrt_bck = rt_add;
-                PC_curr<=PC+1;
-            end
-            else
-            begin
-                fin1<=FPR[rs_add];
-                fin2<=FPR[rt_add];
-                fwe<=1'd1;
-                wrt_bck<=rd_add;
-                PC_curr<=PC+1;
-            end
+            {hi, lo}<={hi, lo};
         end
-        else
+        if(op_code==6'd1)
         begin
-            if(op_code==6'h29)
-            begin
-                PC_curr<=(RF[rs_add]==RF[rt_add]?PC+1+const:PC+1);
-            end
-            else if(op_code==6'h30)
-            begin
-                PC_curr<=(RF[rs_add]==RF[rt_add]?PC+1:PC+const+1);
-            end
-            else if(op_code==6'h31)
-            begin
-                PC_curr<=($signed(RF[rs_add])>$signed(RF[rt_add])?PC+const+1:PC+1);
-            end
-            else if(op_code==6'h32)
-            begin
-                PC_curr<=($signed(RF[rs_add])<$signed(RF[rt_add])?PC+const+1:PC+1);
-            end
-            else if(op_code==6'h33)
-            begin
-                PC_curr<=($signed(RF[rs_add])>=$signed(RF[rt_add])?PC+const+1:PC+1);
-            end
-            else if(op_code==6'h34)
-            begin
-                PC_curr<=($signed(RF[rs_add])<=$signed(RF[rt_add])?PC+const+1:PC+1);
-            end
-            else if(op_code==6'h35)
-            begin
-                PC_curr<=($unsigned(RF[rs_add]<$unsigned(RF[rt_add]))?PC+const+1:PC+1);
-            end
-            else if(op_code==6'h36)
-            begin
-                PC_curr<=($unsigned(RF[rs_add]>$unsigned(RF[rt_add]))?PC+const+1:PC+1);
-            end
-            else if(op_code==6'd1)
-            begin
-                PC_curr<=j_add;
-            end
-            else if(op_code==6'd2)
-            begin
-                RF[31]=PC+1;
-                PC_curr=j_add;
-            end
-            else if(op_code==6'd3)
-            begin
-                PC_curr=RF[rs_add];
-            end
-            else if(op_code==6'd35)
-            begin
-                load_we=1'd0;
-                load_add=RF[rt_add]+const;
-                // RF[rt_add]=load_data;
-                wrt_bck=rs_add;
-                PC_curr=PC+1;
-            end
-            else if(op_code==6'd43)
-            begin
-                load_we=1'd1;
-                store_add=RF[rt_add]+const;
-                store_data=RF[rs_add];
-                //    load_we=1'd0;
-                PC_curr=PC+1;
-            end
-            else if(op_code==6'd36)
-            begin
-                RF[rs_add][31:16]<=const;
-                PC_curr<=PC+1;
-            end
-            else
-            begin
-                ALUop<=op_code;
-                regin1<=RF[rs_add];
-                if(op_code==6'd8 || op_code ==6'd9)
-                begin
-                    regin2<={{16{const[15]}}, const};
-                end
-                else
-                begin
-                    regin2<=const;
-                end
-                aluwe<=1'd1;
-                // RF[rt_add]=regout;
-                wrt_bck<=rt_add;
-                PC_curr<=PC+1;
-            end
+            PC<=j_add;
+        end
+        else if(op_code==6'd2)
+        begin
+           PC<=j_add;
+        end
+        else if(op_code==6'd3)
+        begin
+            PC<=rs;
+        end
+        else if(op_code==6'd41 && branch_decider)
+        begin
+            PC<=PC+se_const+1;
+        end
+        else if(op_code==6'd48 && branch_decider)
+        begin
+            PC<=PC+se_const+1;
+        end
+        else if(op_code==6'd49 && branch_decider)
+        begin
+            PC<=PC+se_const+1;
+        end
+        else if(op_code==6'd50 && branch_decider)
+        begin
+            PC<=PC+se_const+1;
+        end
+        else if(op_code==6'd51 && branch_decider)
+        begin
+            PC<=PC+se_const+1;
+        end
+        else if(op_code==6'd52 && branch_deicder)
+        begin
+            PC<=PC+se_const+1;
+        end
+        else if(op_code==6'd53 && branch_decider)
+        begin
+            PC<=PC+se_const+1;
+        end
+        else if(op_code==6'd54 && branch_decider)
+        begin
+            PC<=PC+se_const+1;
+        end
+        else 
+        begin
+            PC<=PC+1;
         end
     end
 end
-ALU alu1(ALUop, regin1, regin2, regout, aluwe);
-memory_wrapper data_mem(.a(store_add), .d(store_data), .dpra(load_add), .clk(clk), .we(load_we), .dpo(load_data));
-fp_add myfpad(.inp1(fin1), .inp2(fin2), .out(fout), .fwe(fwe));
-always@(negedge clk)
-begin
-    PC=PC_curr;
-    if(op_code==6'd35)
-    begin
-        RF[wrt_bck]=load_data;
-        //load_we=1'd0;
-    end
-    else if(func==6'd24 || func==6'd25 || func==6'd26)
-    begin
-        {hi, lo}=mulout;
-    end
-    else if(op_code==6'd11)
-    begin
-        if(func==6'h35 || func==6'h36)
-        begin
-            FPR[wrt_bck]=fout;
-        end
-        else if (func ==6'h38)
-        begin
-            RF[wrt_bck] = fprout;
-        end
-        else
-        begin
-            FPR[wrt_bck]=fprout;
-        end
-    end
-    else
-    begin
-        if(op_code!=6'd1 && op_code!=6'd35 && op_code!=6'd36 && op_code!=6'd43 && op_code!=6'h29 && op_code!=6'h30 && op_code!=6'h31 && op_code!=6'h32 && op_code!=6'h33 && op_code!=6'h34 && op_code!=6'h35 && op_code!=6'h36)
-        begin
-            RF[wrt_bck]=regout;
-        end
-        //aluwe=1'd0;
-    end
-end
+
 endmodule
