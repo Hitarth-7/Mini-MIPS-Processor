@@ -1,4 +1,4 @@
-`timescale 1ns / 1ps
+timescale 1ns / 1ps
 //////////////////////////////////////////////////////////////////////////////////
 // Company:
 // Engineer:
@@ -26,7 +26,7 @@ input [8:0] a;
 
 reg [8:0] PC;
 wire [31:0] instruction;
-wire [6:0] op_code, func;
+wire [5:0] op_code, func;
 wire [4:0] rs_add, rt_add, rd_add, shamt;
 wire [15:0] const;
 wire [25:0] j_add;
@@ -43,7 +43,8 @@ reg [63:0] mulout;
 wire [31:0] reg_wrt_data;
 wire [31:0] wrt_data_fin;
 wire jalyes;
-wire [4:0] wrt_add_fin
+wire [4:0] wrt_add_fin;
+wire mul_dec;
 wire branch_decider;
 
 memory_wrapper inst_mem(.a(a), .d(d), .dpra(PC), .clk(clk), .dpo(instruction), .we(we));
@@ -60,6 +61,7 @@ memory_wrapper data_mem(.a(alu_out[8:0]), .d(rt), .dpra(alu_out[8:0]), .dpo(mem_
 mux2to1 memreg(.sel(mem_to_reg), .datain1(alu_out), .datain2(mem_out), .dataout(reg_wrt_data));
 and(branch_decider, branch, zero);
 assign jalyes=op_code==6'd2;
+assign mul_dec=(op_code==6'd0 && (func==6'd24 || func==6'd25 || func==6'd26));
 always@(*)
 begin
     if(op_code==6'd0 && func==6'd24)
@@ -87,7 +89,7 @@ always@(posedge clk)
 begin
     if(exec)
     begin
-        if(op_code==6'd24 || op_code==6'd25 || op_code==6'd26)
+        if(op_code==6'd0 && (func==6'd24 || func==6'd25 || func==6'd26))
         begin
             {hi, lo}<=mulout;
         end
@@ -127,7 +129,7 @@ begin
         begin
             PC<=PC+se_const+1;
         end
-        else if(op_code==6'd52 && branch_deicder)
+        else if(op_code==6'd52 && branch_decider)
         begin
             PC<=PC+se_const+1;
         end

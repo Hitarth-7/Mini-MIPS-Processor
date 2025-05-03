@@ -62,7 +62,7 @@ begin
     begin
         alu_src<=1'd0;
     end
-    if(op_code==6'd1 || op_code==6'd2 || op_code==6'd3 || op_code==6'd43 || (op_code==6'd41 || (op_code>=6'd48 && op_code<=6'd54)) || (op_code==6'd0 && func==6'd24) || (op_code==6'd0 && func==6'd25) || (op_code==6'd0 && func==6'd26))
+    if(op_code==6'd1 || op_code==6'd3 || op_code==6'd43 || (op_code==6'd41 || (op_code>=6'd48 && op_code<=6'd54)) || (op_code==6'd0 && func==6'd24) || (op_code==6'd0 && func==6'd25) || (op_code==6'd0 && func==6'd26))
     begin
         reg_write<=1'd0;
     end
